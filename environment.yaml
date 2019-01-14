@@ -1,0 +1,6 @@
+dependencies:
+  - bokeh
+  - nbserverproxy
+  - pandas
+  - math
+  - numpy
