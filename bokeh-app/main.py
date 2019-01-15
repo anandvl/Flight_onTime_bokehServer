@@ -506,21 +506,21 @@ def make_plot_Weather(flight):
 #######################################################################
 airpInp = BokehWidgets.Select(title="Select Airport city", value=airport, options=airportList)
 airlInp = BokehWidgets.Select(title="Select Airline", value=airline, options=airlineList)
-#wetInp = BokehWidgets.Select(title='Select Weather Param', value='TEMP', options=weatherParams)
+wetInp = BokehWidgets.Select(title='Select Weather Param', value='TEMP', options=weatherParams)
 binWid = BokehWidgets.Slider(title="Select Bin Width (mins)", value=5, start=1, end=30, step=1)
 
 plt_month = make_plot_delay(flightDur)
-#plt_Weather = make_plot_Weather(flightDur)
+plt_Weather = make_plot_Weather(flightDur)
 #table_CatMM = make_table(allData)
 
 def update_all(attribute, old, new):
     pltLayout.children[1] = make_plot_delay(flightDur)
-    #pltLayout.children[3] = make_plot_Weather(flightDur)
+    pltLayout.children[3] = make_plot_Weather(flightDur)
     #pltLayout.children[5] = make_table (allData)
      
 for wid in [airpInp, 
 	    airlInp, 
-	    #wetInp, 
+	    wetInp, 
 	    binWid]:
     wid.on_change('value', update_all)
     
@@ -528,8 +528,8 @@ pltLayout = BokehLayouts.column(BokehLayouts.row(BokehLayouts.widgetbox(airpInp)
                                                  BokehLayouts.widgetbox(airlInp),
                                                  BokehLayouts.widgetbox(binWid)),
                                 plt_month,
-                                #BokehLayouts.widgetbox(wetInp), 
-                                #plt_Weather, 
+                                BokehLayouts.widgetbox(wetInp), 
+                                plt_Weather, 
                                 #BokehLayouts.widgetbox(dayInp), 
                                 #table_CatMM, 
                                 width=900)
