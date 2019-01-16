@@ -47,14 +47,22 @@ Pandas.set_option('display.expand_frame_repr', False)
 #######################################################################
 # User Input
 #   file names and locations
+#   rawData = 'True'
+#       - Read raw files (including pulling the weather files from FTP site)
+#       - Compile the relevant data and save as a pickle file
+#   rawData = 'False'
+#       - Read the pre-generated pickle file to load data.
+#       - This reduces the data stored on disk and the number of I/O to disk, 
+#               thus speeding up web response
 #######################################################################
 baseDir = 'data/'
+rawData = False
 yyyymmOfInt = '201801'
 airportInfoFile = 'Airport_locations.csv'
 airlinesFile = 'Carriers.csv'
 weatherStatLocFile = 'isd-history.txt'
-weatherServer = 'local' # if weather files are going to be local
-flightFile = 'Flights_onTime_' + yyyymmOfInt + '.pickle'
+flightFile = 'Flights_onTime_' + yyyymmOfInt
+weatherFile = 'weatherData_' + yyyymmOfInt
 yearOfInt = yyyymmOfInt[0:4]
 #TOOLS = "crosshair,hover,save,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
 TOOLS = "hover,pan,zoom_in,zoom_out,box_zoom,reset,save"
@@ -105,16 +113,34 @@ def nearest_Station(loc):
 def weatherData(statName):
     #######################################################################
     # given the stationName ('STAT_WBAN_YYYY.op.gz') and 'weatherServer' info,
-    # read and clean the data and return a dataframe of weather data.
-    #######################################################################	
+    # retrieve it from the FTP site or load the data locally, read and clean 
+    # the data and return a dataframe of weather data.
+    #######################################################################
+    weatherServer = 'ftp.ncdc.noaa.gov' 
+    weatherPath = 'pub/data/gsod/'
+    weatherUser = 'anonymous'
+    toDownload = False
+    
+    if (toDownload):      
+        try:
+            ftp_obj = Ftplib.FTP()
+            ftp_obj.connect(host=weatherServer,port=21)
+            ftp_obj.login(user='anonymous')
+            ftp_obj.cwd(weatherPath + '/' + yearOfInt + '/')
+            ftp_obj.retrbinary('RETR %s'%statName, open(Os.path.join(Os.path.dirname(__file__), baseDir + statName), 'wb').write)
+        except:
+            print("Download Issue:")
+        finally:
+            print("Download Complete:")
     Os.system('gunzip -f ' + Os.path.join(Os.path.dirname(__file__), baseDir + statName))
+        
     airpWet = Pandas.DataFrame()    # To ensure it returns an empty Dataframe if no data exists.
-    airpWet = Pandas.read_fwf(Os.path.join(Os.path.dirname(__file__), baseDir + statName).split('.')[0] + '.op',
+    airpWet = Pandas.read_fwf(Os.path.join(baseDir + statName.split('.')[0]) + '.op',
                             names = ['STN', 'WBAN', 'YEARMODA', 'TEMP', 'TEMP_Count', 
-                                     'DEWP', 'DEWP_Count', 'SLP', 'SLP_Count', 'STP', 'STP_Count', 
-                                     'VISIB', 'VISIB_Count', 'WDSP', 'WDSP_Count', 'MXSPD', 'GUST',
-                                     'MAX', 'MAX_Flag', 'MIN', 'MIN_Flag', 'PRCP', 'PRCP_Flag', 
-                                     'SNDP', 'FRSHTT'], 
+                                     'DEWP', 'DEWP_Count', 'SLPress', 'SLP_Count', 'STPress', 'STP_Count', 
+                                     'VISIB', 'VISIB_Count', 'WindSpd', 'WDSP_Count', 'MaxWindSpd', 'GUST',
+                                     'MAXTemp', 'MAX_Flag', 'MINTemp', 'MIN_Flag', 'PRCP', 'PRCP_Flag', 
+                                     'SnowDep', 'FRSHTT'], 
                                      header = None,
                                      colspecs = [(0,6), (7,12), (14,22), (24,30), (31,33), (35,41),
                                                  (42,44), (46,52), (53,55), (57,63), (64,66), (68,73),
@@ -122,25 +148,25 @@ def weatherData(statName):
                                                  (108, 109), (110,116), (116,117), (118,123), (123,124), 
                                                  (125,130), (132,138)],
                                                  delim_whitespace=True, skiprows=1)
-    Os.system(f'gzip -f {statName.split(".")[0]}.{statName.split(".")[1]}')
-    airpWet.drop(['STN', 'WBAN', 'TEMP_Count', 'DEWP_Count', 'SLP_Count', 'STP_Count', 'VISIB_Count', 
+    Os.system('gzip -f ' + Os.path.join(Os.path.dirname(__file__), baseDir + statName.split(".")[0] + "." + statName.split(".")[1]))
+    airpWet.drop(['TEMP_Count', 'DEWP_Count', 'SLP_Count', 'STP_Count', 'VISIB_Count', 
                   'WDSP_Count', 'MAX_Flag', 'MIN_Flag', 'PRCP_Flag'], axis=1, inplace=True)
-    airpWet = airpWet.loc[airpWet['YEARMODA'].apply(lambda x: '201801' in str(x))]
+    airpWet = airpWet.loc[airpWet['YEARMODA'].apply(lambda x: yyyymmOfInt in str(x))]
     #
     # Fill up the unmeasured values with 'unexpected' values and break up the FRSHTT column
     #
     airpWet.replace({'TEMP':  {9999.9: -50}}, inplace=True)
     airpWet.replace({'DEWP':  {9999.9: -50}}, inplace=True)
-    airpWet.replace({'MAX':   {9999.9: -50}}, inplace=True)
-    airpWet.replace({'MIN':   {9999.9: -50}}, inplace=True)
-    airpWet.replace({'SLP':   {9999.9: 0}}, inplace=True)
-    airpWet.replace({'STP':   {9999.9: 0}}, inplace=True)
+    airpWet.replace({'MAXTemp':   {9999.9: -50}}, inplace=True)
+    airpWet.replace({'MINTemp':   {9999.9: -50}}, inplace=True)
+    airpWet.replace({'SLPress':   {9999.9: 0}}, inplace=True)
+    airpWet.replace({'STPress':   {9999.9: 0}}, inplace=True)
     airpWet.replace({'VISIB': {999.9:  -1}}, inplace=True)
-    airpWet.replace({'MXSPD': {999.9:  -1}}, inplace=True)
-    airpWet.replace({'WDSP':  {999.9:  -1}}, inplace=True)
+    airpWet.replace({'MaxWindSpd': {999.9:  -1}}, inplace=True)
+    airpWet.replace({'WindSpd':  {999.9:  -1}}, inplace=True)
     airpWet.replace({'GUST':  {999.9:  -1}}, inplace=True)
     airpWet.replace({'PRCP':  {99.99:  0}}, inplace=True)
-    airpWet.replace({'SNDP':  {999.9:  0}}, inplace=True)
+    airpWet.replace({'SnowDep':  {999.9:  0}}, inplace=True)
     airpWet['Fog'] = airpWet['FRSHTT'].apply(lambda x: int(format(x, '06d')[0]))
     airpWet['Rain'] = airpWet['FRSHTT'].apply(lambda x: int(format(x, '06d')[1]))
     airpWet['Snow'] = airpWet['FRSHTT'].apply(lambda x: int(format(x, '06d')[2]))
@@ -149,16 +175,29 @@ def weatherData(statName):
     airpWet['Tornado'] = airpWet['FRSHTT'].apply(lambda x: int(format(x, '06d')[5]))
     airpWet.drop(['FRSHTT'], axis=1, inplace=True)
     airpWet = airpWet.rename(columns={'YEARMODA': 'Date'})
+    airpWet['STN'] = airpWet['STN'].apply(lambda x: format(x, '06d'))
+    airpWet['WBAN'] = airpWet['WBAN'].apply(lambda x: format(x, '05d'))
     #
     airpWet['Date'] = airpWet['Date'].apply(lambda x: str(x)[0:4] + '-' + str(x)[4:6] + '-' + str(x)[6:8])
     #
     return airpWet
 #######################################################################
-# Read in the condensed flight on time data from the pickle file
-# os.path.dirname(__file__) ->  Os.path.join(Os.path.dirname(__file__), baseDir + flightFile) + '.gz')
+# Read in the flight data (condensed version from pickle file OR from the original csv file)
 #######################################################################
-Os.system('gunzip ' + Os.path.join(Os.path.dirname(__file__), baseDir + flightFile) + '.gz')
-flightData = Pandas.read_pickle(Os.path.join(Os.path.dirname(__file__), baseDir + flightFile))
+if (rawData):
+    flightDataFull = Pandas.read_csv(Os.path.join(flightFile + '.csv'), index_col=False)
+    flightDataFull.drop([list(flightDataFull)[len(list(flightDataFull))-1]], axis=1, inplace=True)
+#
+    flightData = flightDataFull.copy()
+    flightData.columns = flightColsFull
+    flightData = flightData.dropna(subset=['DEP_DEL', 'ARR_DEL', 'DEP_TAXI', 'ARR_TAXI'])
+    flightData = flightData.iloc[:, flightColNos].copy()
+    flightData.to_pickle(Os.path.join(Os.path.dirname(__file__), baseDir + flightFile + '.pickle'))
+    del flightDataFull
+else:
+    Os.system('gunzip -f ' + Os.path.join(Os.path.dirname(__file__), baseDir + flightFile + '.pickle.gz'))
+    flightData = Pandas.read_pickle(Os.path.join(Os.path.dirname(__file__), baseDir + flightFile + '.pickle'))
+Os.system('gzip -f ' + Os.path.join(Os.path.dirname(__file__), baseDir + flightFile + '.pickle'))
 #######################################################################
 # Combine arrival and departure delays and arrival and departure taxi times
 #######################################################################
@@ -195,6 +234,7 @@ airportData = Pandas.read_csv(Os.path.join(Os.path.dirname(__file__), baseDir + 
 airportData = airportData.iloc[:,airportInfoColNos].copy()
 airportData.columns = airportInfoCols
 airportData = airportData.dropna(subset=['LAT', 'LON'])
+airportData['City'] = airportData['City'] + ' - ' + airportData['Airport'].apply(lambda x: ''.join([y[0] for y in x.split()]))
 topAirports = topAirports.merge(airportData, on=['AIRPORT_ID'], how='inner')
 del airportData
 #######################################################################
@@ -221,19 +261,19 @@ weatherStatData.drop(['CTRY', 'ST', 'CALL', 'BEGIN', 'END', 'LAT', 'LON'], axis=
 airpWet = topAirports.loc[topAirports['Type']=='DEP_DEL', ['AIRPORT_ID', 'LAT', 'LON']]
 airpWet['LOC'] = list(zip(airpWet['LAT'], airpWet['LON']))
 airpWet['LOC'] = airpWet['LOC'].apply(lambda x: nearest_Station(x))
-airpWet['statName'] = airpWet['LOC'].apply(lambda x: x[0] + '-' + x[1] + '-' + yearOfInt + '.op.gz')
 airpWet['dist2WetStat'] = airpWet['LOC'].apply(lambda x: x[2])
+airpWet['STN'] = airpWet['LOC'].apply(lambda x: x[0])
+airpWet['WBAN'] = airpWet['LOC'].apply(lambda x: x[1])
+if (rawData):
+    airpWet['statName'] = airpWet['LOC'].apply(lambda x: x[0] + '-' + x[1] + '-' + yearOfInt + '.op.gz')
 airpWet.drop(['LAT', 'LON', 'LOC'], axis=1, inplace=True)    
 topAirports = topAirports.merge(airpWet, on=['AIRPORT_ID'], how='inner')
 del weatherStatData, airpWet
 #######################################################################
-# Merge flightDur with topAirports and topAirlines
+# find list of airports and airlines
 #######################################################################
-flightDur = flightDur.merge(topAirports, on=['AIRPORT_ID', 'Type'], how='inner')
-flightDur = flightDur.merge(topAirlines, on=['CAR', 'Type'], how='inner')
-del topAirports, topAirlines
-airportList = list(flightDur.sort_values(['City'], ascending=['True'])['City'].unique())
-airlineList = list(flightDur.sort_values(['Airline'], ascending=['True'])['Airline'].unique())
+airportList = list(topAirports.sort_values(['City'], ascending=['True'])['City'].unique())
+airlineList = list(topAirlines.sort_values(['Airline'], ascending=['True'])['Airline'].unique())
 #######################################################################
 # These will be the base data for rest of the analysis
 # Select a airport and airline (interactively)
@@ -241,13 +281,19 @@ airlineList = list(flightDur.sort_values(['Airline'], ascending=['True'])['Airli
 #######################################################################
 airport = [x for x in airportList if 'Denver' in x][0]
 airline = [x for x in airlineList if 'United' in x][0]
-airpByDate = flightDur.loc[(flightDur['City']==airport)]
 #######################################################################
-statName = airpByDate.statName.unique()[0]
-airpWet = weatherData(statName)
-#airpByDatestats = airpByDatestats.merge(airpWet, on=['Date'], how='inner')
-#
-weatherParams = sorted(list(airpWet.columns)[1:len(list(airpWet.columns))])
+# Load the weather data
+#######################################################################
+if (rawData):
+    airpWet = Pandas.DataFrame()
+    for statName in list(topAirports.statName.unique()):
+        airpWet = Pandas.concat([airpWet, weatherData(statName)])
+    airpWet.to_pickle(Os.path.join(Os.path.dirname(__file__), baseDir + weatherFile + '.pickle'))
+else:
+    Os.system('gunzip ' + Os.path.join(Os.path.dirname(__file__), baseDir + weatherFile + '.pickle.gz'))
+    airpWet = Pandas.read_pickle(Os.path.join(Os.path.dirname(__file__), baseDir + weatherFile + '.pickle'))
+Os.system('gzip -f ' + Os.path.join(Os.path.dirname(__file__), baseDir + weatherFile + '.pickle'))
+weatherParams = sorted(list(airpWet.columns)[3:len(list(airpWet.columns))])
 #######################################################################
 # Styling for a plot
 #######################################################################
@@ -272,7 +318,7 @@ def style(p):
 #######################################################################
 # Interactive plot of Expenses vs Year, all categories stacked up OR for a specific Category.
 #######################################################################
-def make_plot_delay(flight):
+def make_plot_delay():
 
     # For debug only
     #BokehIO.output_file("tmp.html")
@@ -286,9 +332,11 @@ def make_plot_delay(flight):
     airport = airpInp.value
     binW = binWid.value
 
-    minAll, maxAll = flight['DURATION'].quantile(0.02), flight['DURATION'].quantile(0.98)
+    minAll, maxAll = flightDur['DURATION'].quantile(0.02), flightDur['DURATION'].quantile(0.98)
+    airpID = topAirports.loc[topAirports['City']==airport, 'AIRPORT_ID'].unique()[0]
+    carID = topAirlines.loc[topAirlines['Airline']==airline, 'CAR'].unique()[0]
     
-    monthFull = flight.loc[(flight['City']==airport) & (flight['Airline']==airline)]
+    monthFull = flightDur.loc[(flightDur['AIRPORT_ID']==airpID) & (flightDur['CAR']==carID)]
     #monthFullstats = monthFull.groupby(['Type'])['DURATION'].agg(['mean', 'median', 'std', 'min', 'max', 'count']).reset_index()
 
     #######################################################################
@@ -296,20 +344,19 @@ def make_plot_delay(flight):
     minDepDel = min(monthFull.loc[monthFull['Type']=='DEP_DEL', 'DURATION'])
     maxDepDel = max(monthFull.loc[monthFull['Type']=='DEP_DEL', 'DURATION'])
     histDepDel, edgesDepDel = Numpy.histogram(monthFull.loc[monthFull['Type']=='DEP_DEL', 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minDepDel, maxDepDel, binW))
+                                  density=False, bins=Numpy.arange(minDepDel, maxDepDel, binW))
     
     minArrDel = min(monthFull.loc[monthFull['Type']=='ARR_DEL', 'DURATION'])
     maxArrDel = max(monthFull.loc[monthFull['Type']=='ARR_DEL', 'DURATION'])
     histArrDel, edgesArrDel = Numpy.histogram(monthFull.loc[monthFull['Type']=='ARR_DEL', 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minArrDel, maxArrDel, binW))
+                                  density=False, bins=Numpy.arange(minArrDel, maxArrDel, binW))
     
     plt1 = BokehPlotting.figure(
                              title=f'Delays at {airport} for {airline}', 
                              x_axis_label='Duration (mins)', 
-                             y_axis_label='Fraction of occurences',
+                             y_axis_label='Number of flights',
                              plot_width=900, plot_height=500,
                              x_range = (minAll, maxAll),
-                             #tooltips = [('Year', '@Year'),('Exp.', '@$category')]
                              tools = TOOLS)                                
 
     
@@ -326,16 +373,16 @@ def make_plot_delay(flight):
     
     minDepTaxi, maxDepTaxi = min(monthFull.loc[monthFull['Type']=='DEP_TAXI', 'DURATION']), max(monthFull.loc[monthFull['Type']=='DEP_TAXI', 'DURATION'])
     histDepTaxi, edgesDepTaxi = Numpy.histogram(monthFull.loc[monthFull['Type']=='DEP_TAXI', 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minDepTaxi, maxDepTaxi, binW))
+                                  density=False, bins=Numpy.arange(minDepTaxi, maxDepTaxi, binW))
     
     minArrTaxi, maxArrTaxi = min(monthFull.loc[monthFull['Type']=='ARR_TAXI', 'DURATION']), max(monthFull.loc[monthFull['Type']=='ARR_TAXI', 'DURATION'])
     histArrTaxi, edgesArrTaxi = Numpy.histogram(monthFull.loc[monthFull['Type']=='ARR_TAXI', 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minArrTaxi, maxArrTaxi, binW))
+                                  density=False, bins=Numpy.arange(minArrTaxi, maxArrTaxi, binW))
     
     plt2 = BokehPlotting.figure(
                              title=f'Taxiing times at {airport} for {airline}', 
                              x_axis_label='Duration (mins)', 
-                             y_axis_label='Fraction of occurences',
+                             y_axis_label='Number of flights',
                              plot_width=900, plot_height=500,
                              x_range = (minAll, maxAll),
                              #tooltips = [('Year', '@Year'),('Exp.', '@$category')]
@@ -362,7 +409,7 @@ def make_plot_delay(flight):
 #######################################################################
 # Interactive plot of Expenses vs month (for specific year), all categories stacked up OR for a specific Category.
 #######################################################################
-def make_plot_Weather(flight):
+def make_plot_Weather():
     
     # For debug only
     #BokehIO.output_file("tmp.html")
@@ -375,25 +422,27 @@ def make_plot_Weather(flight):
     param = wetInp.value
     binW = binWid.value
     
-    airpByDate = flight.loc[(flight['City']==airport)].copy()
-    airpByDatestats = airpByDate.groupby(['Date', 'Type', 'AirpMonthTotal'])['DURATION'].agg(['mean', 'median', 'count']).reset_index()
-    statName = airpByDate.statName.unique()[0]    
-    airpWet = weatherData(statName)
-    airpByDatestats = airpByDatestats.merge(airpWet, on=['Date'], how='inner')
+    airpID = topAirports.loc[topAirports['City']==airport, 'AIRPORT_ID'].unique()[0]
     
-    airpByDate['Day'] = airpByDate['Date'].apply(lambda x: x[8:10])
-    airpByDatestats['Day'] = airpByDatestats['Date'].apply(lambda x: x[8:10])
+    airpByDate = flightDur.loc[flightDur['AIRPORT_ID']==airpID].copy()
+    airpByDatestats = airpByDate.groupby(['Date', 'Type', 'AIRPORT_ID'])['DURATION'].agg(['mean', 'median', 'count']).reset_index()
+    
+    airpByDatestats = airpByDatestats.merge(topAirports, on=['AIRPORT_ID', 'Type'], how='inner')
+    airpByDatestats = airpByDatestats.merge(airpWet, on=['STN', 'WBAN', 'Date'], how='inner')
+    
+    airpByDate['Day'] = airpByDate['Date'].apply(lambda x: int(x[8:10]))
+    airpByDatestats['Day'] = airpByDatestats['Date'].apply(lambda x: int(x[8:10]))
     
     #######################################################################
     
     pltTopLeft = BokehPlotting.figure(x_range = (0, airpByDatestats['Date'].nunique()),
-                                 title="Delays by Day", 
+                                 title="Delays vs Day", 
                                  x_axis_label='Day of month', 
                                  y_axis_label='Delay (mins)',
-                                 plot_width=400, plot_height=300,
+                                 plot_width=450, plot_height=300,
                                  tools = TOOLS,
                                  tooltips = [('Day', '@Day'),
-                                             ('Avg', '@mean'),
+                                             ('Avg', '@mean{int}'),
                                              ('Med', '@median'),
                                              ('Count', '@count')]    
                                  )
@@ -412,10 +461,12 @@ def make_plot_Weather(flight):
                                  title=f'Delays vs {param}', 
                                  x_axis_label=f'{param}', 
                                  y_axis_label='Delay (mins)',
-                                 plot_width=400, plot_height=300,
+                                 plot_width=450, plot_height=300,
                                  tools = TOOLS,
-                                 tooltips = [(f'{param}', '@x'),
-                                             ('Avg delay (min)', '@y')]    
+                                 tooltips = [('Day', '@Day'),
+                                             (f'{param}', f'@{param}'),
+                                             ('Avg', '@mean{int}')
+											]    
                                  )
     pltTopRight.circle(x = param, y = 'mean', line_color='red' ,color = 'red', fill_alpha=1, size=5,
                       source = airpByDatestats.loc[airpByDatestats['Type']=='DEP_DEL'], legend='Dep')
@@ -430,12 +481,12 @@ def make_plot_Weather(flight):
     
     pltBotLeft = BokehPlotting.figure(x_range = (0, airpByDatestats['Date'].nunique()),
                                  title=f'{param} vs Day', 
-                                 x_axis_label='Day', 
+                                 x_axis_label='Day of month', 
                                  y_axis_label=f'{param}',
                                  plot_width=400, plot_height=300,
                                  tools = TOOLS,
-                                 tooltips = [('Day', '@x'),
-                                             (f'{param}', '@y')
+                                 tooltips = [('Day', '@Day'),
+                                             (f'{param}', f'@{param}')
                                              ]    
                                  )
     pltBotLeft.circle(x = 'Day', y = param, line_color='red' ,color = 'red', fill_alpha=1, size=5,
@@ -457,13 +508,13 @@ def make_plot_Weather(flight):
     maxDepDel = max(airpByDate.loc[(airpByDate['Type']=='DEP_DEL') & (airpByDate['Day']==maxDepDay), 'DURATION'])
     histDepDel, edgesDepDel = Numpy.histogram(airpByDate.loc[(airpByDate['Type']=='DEP_DEL') & 
                                                                (airpByDate['Day']==maxDepDay), 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minDepDel, maxDepDel, binW))
+                                  density=False, bins=Numpy.arange(minDepDel, maxDepDel, binW))
     
     minArrDel = min(airpByDate.loc[(airpByDate['Type']=='ARR_DEL') & (airpByDate['Day']==maxArrDay), 'DURATION'])
     maxArrDel = max(airpByDate.loc[(airpByDate['Type']=='ARR_DEL') & (airpByDate['Day']==maxArrDay), 'DURATION'])
     histArrDel, edgesArrDel = Numpy.histogram(airpByDate.loc[(airpByDate['Type']=='ARR_DEL') & 
                                                                (airpByDate['Day']==maxArrDay), 'DURATION'], 
-                                  density=True, bins=Numpy.arange(minArrDel, maxArrDel, binW))
+                                  density=False, bins=Numpy.arange(minArrDel, maxArrDel, binW))
     
     xmin = min(airpByDate.loc[(airpByDate['Type']=='DEP_DEL') & (airpByDate['Day']==maxDepDay), 'DURATION'].quantile(0.05),
                               airpByDate.loc[(airpByDate['Type']=='ARR_DEL') & (airpByDate['Day']==maxArrDay), 'DURATION'].quantile(0.05))
@@ -473,8 +524,8 @@ def make_plot_Weather(flight):
     pltBotRight = BokehPlotting.figure(x_range = (xmin, xmax),
                                  title='Delays on worst day', 
                                  x_axis_label='Duration (mins)', 
-                                 y_axis_label='Fraction of occurences',
-                                 plot_width=400, plot_height=300,
+                                 y_axis_label='Number of flights',
+                                 plot_width=450, plot_height=300,
                                  tools = TOOLS 
                                  #tooltips = [('Day', '@x'),
                                              #(f'{param}', '@y')
@@ -509,13 +560,13 @@ airlInp = BokehWidgets.Select(title="Select Airline", value=airline, options=air
 wetInp = BokehWidgets.Select(title='Select Weather Param', value='TEMP', options=weatherParams)
 binWid = BokehWidgets.Slider(title="Select Bin Width (mins)", value=5, start=1, end=30, step=1)
 
-plt_month = make_plot_delay(flightDur)
-plt_Weather = make_plot_Weather(flightDur)
+plt_month = make_plot_delay()
+plt_Weather = make_plot_Weather()
 #table_CatMM = make_table(allData)
 
 def update_all(attribute, old, new):
-    pltLayout.children[1] = make_plot_delay(flightDur)
-    pltLayout.children[3] = make_plot_Weather(flightDur)
+    pltLayout.children[1] = make_plot_delay()
+    pltLayout.children[3] = make_plot_Weather()
     #pltLayout.children[5] = make_table (allData)
      
 for wid in [airpInp, 
